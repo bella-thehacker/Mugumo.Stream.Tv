@@ -1,0 +1,6 @@
+{
+  "name": "MŨGUMO.STREAM.TV",
+  "description": "A cinematic film discovery and viewing sanctuary inspired by ancient Kikuyu mũgumo fig trees, overgrown electronics, and dreamlike forest landscapes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
