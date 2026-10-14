@@ -62,4 +62,40 @@ export interface SanctuarySettings {
   ambientVolume: number; // 0 - 1
   crtHumVolume: number; // 0 - 1
   reducedMotion: boolean;
+  autoplayNext: boolean;
+  playbackQuality: '1080p' | '720p' | 'analog';
+  subtitlesEnabled: boolean;
+  uiSoundEffects: boolean;
+  phosphorGlow?: 'subtle' | 'balanced' | 'intense';
+  particleDensity?: 'minimal' | 'balanced' | 'lush';
+  chromaticAberration?: boolean;
 }
+
+export interface UserAccount {
+  id: string;
+  displayName: string;
+  username: string;
+  email: string;
+  passwordHash?: string; // simulation hash for local storage
+  createdAt: string;
+}
+
+export interface UserProfile {
+  id: string;
+  accountId: string;
+  name: string;
+  avatarSeed?: string; // botanical motif avatar identifier
+  bio?: string; // personal quote or field note
+  forestTitle?: string; // e.g. "Canopy Wanderer", "Archivist of the Deep"
+  hasCustomImage?: boolean;
+  imageBlobUrl?: string; // runtime loaded blob url
+  createdAt: string;
+  isDefault?: boolean;
+}
+
+export interface AuthSession {
+  account: UserAccount | null;
+  activeProfile: UserProfile | null;
+  isGuest: boolean;
+}
+

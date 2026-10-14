@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Navigation } from '../components/Navigation';
 import { ForestEnvironment } from '../components/ForestEnvironment';
 import { SanctuaryStorage } from '../services/storage';
 import { SystemLogEvent } from '../types';
@@ -52,14 +51,11 @@ export const Logs: React.FC = () => {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex flex-col overflow-x-hidden font-mono">
+    <div className="relative min-h-[calc(100vh-4rem)] w-full flex flex-col overflow-x-hidden font-mono">
       {/* 1. Forest Atmosphere */}
       <ForestEnvironment intensity="subtle" showCRTAnchor={false} />
 
-      {/* 2. Top Bar Navigation */}
-      <Navigation />
-
-      {/* 3. Terminal Diagnostics Console */}
+      {/* 2. Terminal Diagnostics Console */}
       <main className="relative z-10 flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
         
         {/* Terminal Header */}

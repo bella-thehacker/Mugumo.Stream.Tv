@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Navigation } from '../components/Navigation';
 import { ForestEnvironment } from '../components/ForestEnvironment';
 import { SanctuaryStorage } from '../services/storage';
 import { FILMS } from '../data/films';
@@ -86,14 +85,11 @@ export const Vault: React.FC = () => {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex flex-col overflow-x-hidden">
+    <div className="relative min-h-[calc(100vh-4rem)] w-full flex flex-col overflow-x-hidden">
       {/* 1. Forest Atmosphere */}
       <ForestEnvironment intensity="full" showCRTAnchor={true} />
 
-      {/* 2. Top Bar Navigation */}
-      <Navigation />
-
-      {/* 3. Main Archive Content */}
+      {/* 2. Main Archive Content */}
       <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-10">
         
         {/* Header & Memory Disclaimer */}
@@ -101,13 +97,15 @@ export const Vault: React.FC = () => {
           <div>
             <div className="flex items-center gap-2 text-xs font-mono text-[#A7F3D0]">
               <Disc className="w-4 h-4 text-[#EC4899]" />
-              <span>PERSONAL REEL ARCHIVE // STORED IN LOCAL BROWSER BUFFER</span>
+              <span>
+                VAULT TAPE REEL // CLEARING: {SanctuaryStorage.getActiveProfileId() === 'guest-profile' ? 'GUEST TRAVELER' : 'ACTIVE PROFILE'}
+              </span>
             </div>
             <h1 className="mt-2 font-editorial text-3xl sm:text-4xl font-light text-[#A7F3D0] crt-glow">
               The Vault
             </h1>
             <p className="mt-1 font-editorial italic text-sm text-[#D8C9A5]/70">
-              Analog tapes, handwritten logs, and memories preserved in damp moss.
+              Analog tapes, handwritten logs, and memories preserved in damp moss for this clearing.
             </p>
           </div>
 

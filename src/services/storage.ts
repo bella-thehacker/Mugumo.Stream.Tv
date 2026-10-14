@@ -13,6 +13,10 @@ const DEFAULT_SETTINGS: SanctuarySettings = {
   ambientVolume: 0.5,
   crtHumVolume: 0.25,
   reducedMotion: false,
+  autoplayNext: true,
+  playbackQuality: '1080p',
+  subtitlesEnabled: false,
+  uiSoundEffects: true,
 };
 
 const INITIAL_VAULT: VaultRecord[] = [
@@ -98,12 +102,33 @@ const INITIAL_LOGS: SystemLogEvent[] = [
 ];
 
 export const SanctuaryStorage = {
-  getVault(): VaultRecord[] {
+  getActiveProfileId(): string {
     try {
-      const data = localStorage.getItem(VAULT_STORAGE_KEY);
+      const sessionData = localStorage.getItem('mugumo_auth_session_v1');
+      if (sessionData) {
+        const session = JSON.parse(sessionData);
+        if (session.activeProfile?.id) {
+          return session.activeProfile.id;
+        }
+      }
+    } catch {
+      // safe fallback
+    }
+    return 'default_clearing';
+  },
+
+  getVault(specificProfileId?: string): VaultRecord[] {
+    try {
+      const profileId = specificProfileId || this.getActiveProfileId();
+      const storageKey = `${VAULT_STORAGE_KEY}_${profileId}`;
+      const data = localStorage.getItem(storageKey);
       if (!data) {
-        localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(INITIAL_VAULT));
-        return INITIAL_VAULT;
+        // If this is default, guest or demo profile, seed with initial tapes
+        if (profileId === 'default_clearing' || profileId === 'guest-profile' || profileId.includes('traveler')) {
+          localStorage.setItem(storageKey, JSON.stringify(INITIAL_VAULT));
+          return INITIAL_VAULT;
+        }
+        return [];
       }
       return JSON.parse(data);
     } catch {
@@ -111,9 +136,11 @@ export const SanctuaryStorage = {
     }
   },
 
-  saveVaultRecord(record: VaultRecord): VaultRecord[] {
+  saveVaultRecord(record: VaultRecord, specificProfileId?: string): VaultRecord[] {
     try {
-      const current = this.getVault();
+      const profileId = specificProfileId || this.getActiveProfileId();
+      const storageKey = `${VAULT_STORAGE_KEY}_${profileId}`;
+      const current = this.getVault(profileId);
       const existingIndex = current.findIndex(r => r.filmId === record.filmId);
       let updated: VaultRecord[];
       if (existingIndex >= 0) {
@@ -122,7 +149,7 @@ export const SanctuaryStorage = {
       } else {
         updated = [record, ...current];
       }
-      localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(updated));
+      localStorage.setItem(storageKey, JSON.stringify(updated));
       this.addLog('ARCHIVE', 'VAULT', `Tape archived: ${record.filmId} [status: ${record.status}]`);
       return updated;
     } catch {
@@ -130,11 +157,13 @@ export const SanctuaryStorage = {
     }
   },
 
-  removeVaultRecord(filmId: string): VaultRecord[] {
+  removeVaultRecord(filmId: string, specificProfileId?: string): VaultRecord[] {
     try {
-      const current = this.getVault();
+      const profileId = specificProfileId || this.getActiveProfileId();
+      const storageKey = `${VAULT_STORAGE_KEY}_${profileId}`;
+      const current = this.getVault(profileId);
       const filtered = current.filter(r => r.filmId !== filmId);
-      localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(filtered));
+      localStorage.setItem(storageKey, JSON.stringify(filtered));
       this.addLog('ARCHIVE', 'VAULT', `Tape unspooled / removed from vault: ${filmId}`);
       return filtered;
     } catch {
@@ -144,7 +173,8 @@ export const SanctuaryStorage = {
 
   updateProgress(filmId: string, progressSeconds: number, totalSeconds: number): void {
     try {
-      const current = this.getVault();
+      const profileId = this.getActiveProfileId();
+      const current = this.getVault(profileId);
       const existing = current.find(r => r.filmId === filmId);
       const now = new Date().toISOString();
       if (existing) {
@@ -155,7 +185,7 @@ export const SanctuaryStorage = {
           totalSeconds,
           status: isFinished ? 'completed' : 'watching',
           lastWatchedAt: now,
-        });
+        }, profileId);
       } else {
         this.saveVaultRecord({
           filmId,
@@ -164,7 +194,7 @@ export const SanctuaryStorage = {
           totalSeconds,
           addedAt: now,
           lastWatchedAt: now,
-        });
+        }, profileId);
       }
     } catch {
       // Safe fallback
@@ -231,6 +261,79 @@ export const SanctuaryStorage = {
 
   setGateUnlocked(unlocked: boolean): void {
     localStorage.setItem(GATE_UNLOCKED_KEY, unlocked ? 'true' : 'false');
+  },
+
+  clearWatchHistory(specificProfileId?: string): VaultRecord[] {
+    try {
+      const profileId = specificProfileId || this.getActiveProfileId();
+      const current = this.getVault(profileId);
+      // Reset progress to 0 and remove 'watching' status, preserving saved status, rating, and notes
+      const updated = current.map(rec => ({
+        ...rec,
+        progressSeconds: 0,
+        status: (rec.status === 'watching' ? 'saved' : rec.status) as VaultRecord['status'],
+        lastWatchedAt: undefined,
+      }));
+      const storageKey = `${VAULT_STORAGE_KEY}_${profileId}`;
+      localStorage.setItem(storageKey, JSON.stringify(updated));
+      this.addLog('ARCHIVE', 'VAULT', `Tape head cleared: Watch history reset for clearing ${profileId}`);
+      return updated;
+    } catch {
+      return [];
+    }
+  },
+
+  resetExperienceSettings(): SanctuarySettings {
+    try {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(DEFAULT_SETTINGS));
+      this.addLog('INFO', 'SYSTEM', 'Sanctuary experience preferences restored to forest defaults');
+      return DEFAULT_SETTINGS;
+    } catch {
+      return DEFAULT_SETTINGS;
+    }
+  },
+
+  deleteProfileVault(profileId: string): void {
+    try {
+      const storageKey = `${VAULT_STORAGE_KEY}_${profileId}`;
+      localStorage.removeItem(storageKey);
+    } catch {
+      // safe
+    }
+  },
+
+  exportSanctuaryData(account: any, profile: any): void {
+    try {
+      const profileId = profile?.id || this.getActiveProfileId();
+      const vault = this.getVault(profileId);
+      const settings = this.getSettings();
+      const logs = this.getLogs();
+
+      const exportPayload = {
+        app: 'MŨGUMO.STREAM.TV',
+        exportedAt: new Date().toISOString(),
+        account: account ? { id: account.id, username: account.username, email: account.email, displayName: account.displayName } : 'guest',
+        clearing: profile ? { id: profile.id, name: profile.name, avatarSeed: profile.avatarSeed } : 'default',
+        vaultRecords: vault,
+        experienceSettings: settings,
+        systemAuditSnippet: logs.slice(0, 15),
+      };
+
+      const jsonStr = JSON.stringify(exportPayload, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `mugumo_archive_${profile?.name ? profile.name.toLowerCase().replace(/\s+/g, '_') : 'clearing'}_${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      this.addLog('ARCHIVE', 'SYSTEM', `Personal archive exported to offline parchment: ${profileId}`);
+    } catch (err) {
+      console.warn('Failed to export data', err);
+    }
   },
 
   clearAllData(): void {

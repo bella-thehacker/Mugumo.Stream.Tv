@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Navigation } from '../components/Navigation';
 import { ForestEnvironment } from '../components/ForestEnvironment';
 import { FilmCard } from '../components/FilmCard';
 import { FILMS, COLLECTIONS } from '../data/films';
@@ -56,14 +55,11 @@ export const Grove: React.FC = () => {
     : FILMS.filter(f => f.collectionId === activeCollectionFilter);
 
   return (
-    <div className="relative min-h-screen w-full flex flex-col overflow-x-hidden">
+    <div className="relative min-h-[calc(100vh-4rem)] w-full flex flex-col overflow-x-hidden">
       {/* 1. Atmospheric Forest Canvas & SVG Backdrop */}
       <ForestEnvironment intensity="full" showCRTAnchor={true} />
 
-      {/* 2. Top Bar Navigation */}
-      <Navigation />
-
-      {/* 3. Main Content Container */}
+      {/* 2. Main Content Container */}
       <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-14">
         
         {/* HERO SECTION: FEATURED TRANSMISSION SPOTLIGHT */}

@@ -17,7 +17,7 @@ export const RitualIntro: React.FC<RitualIntroProps> = ({ onComplete }) => {
     // Stage 3 (Awakening): 3400ms -> 5000ms
     // Stage 4 (Signal): 5000ms -> 6600ms
     // Stage 5 (Title): 6600ms -> 8200ms
-    // Stage 6 (Complete): 8200ms
+    // Stage 6 (Complete): 8500ms
     const t1 = setTimeout(() => setStage(2), 1800);
     const t2 = setTimeout(() => setStage(3), 3400);
     const t3 = setTimeout(() => {
@@ -178,7 +178,7 @@ export const RitualIntro: React.FC<RitualIntroProps> = ({ onComplete }) => {
               {/* Rotary Knobs & LED */}
               <circle cx="604" cy="442" r="5" fill="#1C100B" stroke="#634532" strokeWidth="1" />
               <circle cx="604" cy="460" r="5" fill="#1C100B" stroke="#634532" strokeWidth="1" />
-              <circle cx="604" cy="482" r="2.5" fill="#F59E0B" /> {/* Amber Pilot LED */}
+              <circle cx="604" cy="482" r="2.5" fill="#F59E0B" />
               {/* Creeping Vine over Cabinet */}
               <path d="M 480,480 Q 510,430 530,420" stroke="#164332" strokeWidth="3" fill="none" />
             </g>
@@ -186,7 +186,7 @@ export const RitualIntro: React.FC<RitualIntroProps> = ({ onComplete }) => {
         </svg>
       </div>
 
-      {/* Stage Indicators (Subtle ritual status) */}
+      {/* Stage Indicators */}
       <div className="flex items-center gap-6 text-xs text-[#A7F3D0]/60 font-mono tracking-widest mt-2 uppercase">
         <span className={stage === 1 ? 'text-[#EC4899] font-bold' : ''}>1. Roots</span>
         <span>·</span>

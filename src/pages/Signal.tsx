@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Navigation } from '../components/Navigation';
 import { ForestEnvironment } from '../components/ForestEnvironment';
 import { RadarScanner } from '../components/RadarScanner';
 import { FilmCard } from '../components/FilmCard';
@@ -88,14 +87,11 @@ export const Signal: React.FC = () => {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex flex-col overflow-x-hidden">
+    <div className="relative min-h-[calc(100vh-4rem)] w-full flex flex-col overflow-x-hidden">
       {/* 1. Forest Backdrop */}
       <ForestEnvironment intensity="subtle" showCRTAnchor={true} />
 
-      {/* 2. Top Bar Navigation */}
-      <Navigation />
-
-      {/* 3. Signal Tuning Interface */}
+      {/* 2. Signal Tuning Interface */}
       <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-10">
         
         {/* Terminal Header & Radar Receiver Unit */}

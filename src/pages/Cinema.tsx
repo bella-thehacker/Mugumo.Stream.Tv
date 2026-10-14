@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Navigation } from '../components/Navigation';
 import { ForestEnvironment } from '../components/ForestEnvironment';
 import { CRTTelevision } from '../components/CRTTelevision';
 import { FILMS } from '../data/films';
@@ -33,14 +32,11 @@ export const Cinema: React.FC = () => {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex flex-col overflow-x-hidden">
+    <div className="relative min-h-[calc(100vh-4rem)] w-full flex flex-col overflow-x-hidden">
       {/* 1. Deep Cinema Forest Canvas with dimmer lighting for viewing */}
       <ForestEnvironment intensity="cinema" showCRTAnchor={false} />
 
-      {/* 2. Top Bar Navigation */}
-      <Navigation />
-
-      {/* 3. Cinema Theatre Environment */}
+      {/* 2. Cinema Theatre Environment */}
       <main className="relative z-10 flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-8">
         
         {/* Navigation Breadcrumb / Station Frequency Strip */}
