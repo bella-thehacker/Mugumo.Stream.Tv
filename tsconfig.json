@@ -4,7 +4,9 @@
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
     "module": "ESNext",
-    "types": ["vite/client"],
+    "types": [
+      "vite/client"
+    ],
     "lib": [
       "ES2022",
       "DOM",
@@ -12,7 +14,7 @@
     ],
     "skipLibCheck": true,
     "esModuleInterop": true,
-"allowSyntheticDefaultImports": true,
+    "allowSyntheticDefaultImports": true,
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "moduleDetection": "force",
@@ -25,5 +27,8 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "supabase/functions"
+  ]
 }

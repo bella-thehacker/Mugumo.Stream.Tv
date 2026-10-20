@@ -1,148 +1,294 @@
-import { UserAccount, UserProfile, AuthSession } from '../types';
+import type { UserAccount, UserProfile, AuthSession } from '../types';
+import { supabase } from '../lib/supabase';
 import { SanctuaryStorage } from './storage';
 
-const ACCOUNTS_STORAGE_KEY = 'mugumo_accounts_v1';
 const CURRENT_SESSION_KEY = 'mugumo_auth_session_v1';
 
-// Web Crypto SHA-256 password hashing helper
-async function hashPassword(password: string): Promise<string> {
-  const msgUint8 = new TextEncoder().encode(password + '::mugumo_salt_2026');
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+const guestSession = (): AuthSession => ({
+  account: null,
+  activeProfile: null,
+  isGuest: true,
+});
+
+function cacheSession(session: AuthSession): void {
+  try {
+    localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(session));
+  } catch {
+    // Session persistence is also handled by Supabase Auth.
+  }
 }
 
-// Initial demo accounts
-const SEED_ACCOUNTS: UserAccount[] = [
-  {
-    id: 'acc-mugumo-traveler',
-    displayName: 'Sanctuary Keeper',
-    username: 'keeper',
-    email: 'keeper@mugumo.tv',
-    passwordHash: '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918', // 'admin123'
-    createdAt: '2026-10-01T12:00:00Z',
-  }
-];
+async function accountFromUser(user: {
+  id: string;
+  email?: string;
+  created_at?: string;
+  user_metadata?: Record<string, unknown>;
+}): Promise<UserAccount> {
+  const { data: profile } = await supabase
+    .from('account_profiles')
+    .select('display_name, username')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  const metadata = user.user_metadata ?? {};
+
+  return {
+    id: user.id,
+    displayName:
+      profile?.display_name ||
+      (typeof metadata.display_name === 'string'
+        ? metadata.display_name
+        : 'Forest Traveler'),
+    username:
+      profile?.username ||
+      (typeof metadata.username === 'string' ? metadata.username : ''),
+    email: user.email ?? '',
+    createdAt: user.created_at ?? new Date().toISOString(),
+  };
+}
+
+async function syncSignedInAccount(userId: string): Promise<void> {
+  const { data, error } = await supabase.auth.getUser();
+
+  if (error || !data.user || data.user.id !== userId) return;
+
+  const account = await accountFromUser(data.user);
+  const current = AuthService.getSession();
+
+  cacheSession({
+    account,
+    activeProfile:
+      current.account?.id === userId ? current.activeProfile : null,
+    isGuest: false,
+  });
+}
 
 export const AuthService = {
+  // Kept for compatibility with older callers. Supabase is the source of truth.
   getAccounts(): UserAccount[] {
-    try {
-      const data = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
-      if (!data) {
-        localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(SEED_ACCOUNTS));
-        return SEED_ACCOUNTS;
-      }
-      return JSON.parse(data);
-    } catch {
-      return SEED_ACCOUNTS;
-    }
+    return [];
   },
 
-  async register(displayName: string, username: string, email: string, password: string): Promise<{ success: boolean; error?: string; account?: UserAccount }> {
+  async register(
+    displayName: string,
+    username: string,
+    email: string,
+    password: string,
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    account?: UserAccount;
+    needsEmailConfirmation?: boolean;
+  }> {
+    const cleanDisplayName = displayName.trim();
     const cleanUsername = username.trim().toLowerCase();
     const cleanEmail = email.trim().toLowerCase();
-    const cleanDisplayName = displayName.trim();
 
-    if (!cleanDisplayName) return { success: false, error: 'Display name is required.' };
-    if (!cleanUsername || cleanUsername.length < 3) return { success: false, error: 'Username must be at least 3 characters.' };
-    if (!cleanEmail || !cleanEmail.includes('@')) return { success: false, error: 'Please enter a valid email address.' };
-    if (!password || password.length < 6) return { success: false, error: 'Password must be at least 6 characters.' };
-
-    const accounts = this.getAccounts();
-    if (accounts.some(a => a.username.toLowerCase() === cleanUsername)) {
-      return { success: false, error: 'That username is already claimed in the forest.' };
-    }
-    if (accounts.some(a => a.email.toLowerCase() === cleanEmail)) {
-      return { success: false, error: 'An account with that email already exists. Enter the Grove to sign in.' };
+    if (!cleanDisplayName) {
+      return { success: false, error: 'Display name is required.' };
     }
 
-    const passwordHash = await hashPassword(password);
-    const newAccount: UserAccount = {
-      id: `acc-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      displayName: cleanDisplayName,
-      username: cleanUsername,
+    if (!/^[a-z0-9_]{3,30}$/.test(cleanUsername)) {
+      return {
+        success: false,
+        error: 'Username must be 3–30 characters using letters, numbers, or underscores.',
+      };
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return { success: false, error: 'Please enter a valid email address.' };
+    }
+
+    if (password.length < 6) {
+      return {
+        success: false,
+        error: 'Password must be at least 6 characters.',
+      };
+    }
+
+    const { data, error } = await supabase.auth.signUp({
       email: cleanEmail,
-      passwordHash,
-      createdAt: new Date().toISOString(),
-    };
-
-    const updated = [...accounts, newAccount];
-    localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(updated));
-    SanctuaryStorage.addLog('INFO', 'SYSTEM', `New sanctuary account rooted: ${newAccount.username}`);
-
-    // Set as active session (without profile yet)
-    this.setSession({
-      account: newAccount,
-      activeProfile: null,
-      isGuest: false,
+      password,
+      options: {
+        data: {
+          display_name: cleanDisplayName,
+          username: cleanUsername,
+        },
+      },
     });
 
-    return { success: true, account: newAccount };
+    if (error) {
+      const message = error.message.toLowerCase();
+
+      if (message.includes('username') || message.includes('duplicate key')) {
+        return {
+          success: false,
+          error: 'That username or email may already be registered.',
+        };
+      }
+
+      return { success: false, error: error.message };
+    }
+
+    if (!data.user) {
+      return {
+        success: false,
+        error: 'Supabase did not return an account. Please try again.',
+      };
+    }
+
+    const account = await accountFromUser(data.user);
+    const needsEmailConfirmation = !data.session;
+
+    if (data.session) {
+      cacheSession({
+        account,
+        activeProfile: null,
+        isGuest: false,
+      });
+
+      SanctuaryStorage.addLog(
+        'INFO',
+        'SYSTEM',
+        `New sanctuary account rooted: ${account.username}`,
+      );
+    }
+
+    return {
+      success: true,
+      account,
+      needsEmailConfirmation,
+    };
   },
 
-  async login(identifier: string, password: string): Promise<{ success: boolean; error?: string; account?: UserAccount }> {
+  async login(
+    identifier: string,
+    password: string,
+  ): Promise<{ success: boolean; error?: string; account?: UserAccount }> {
     const cleanId = identifier.trim().toLowerCase();
-    if (!cleanId) return { success: false, error: 'Please enter your email or username.' };
-    if (!password) return { success: false, error: 'Please enter your password.' };
 
-    const accounts = this.getAccounts();
-    const account = accounts.find(a => a.username.toLowerCase() === cleanId || a.email.toLowerCase() === cleanId);
-    if (!account) {
-      return { success: false, error: 'No sanctuary record found with those credentials.' };
+    if (!cleanId) {
+      return { success: false, error: 'Please enter your email or username.' };
     }
 
-    const inputHash = await hashPassword(password);
-    // Allow either match against saved hash or seed password for demo keeper
-    const isMatch = account.passwordHash === inputHash || (account.username === 'keeper' && password === 'admin123');
-    if (!isMatch) {
-      return { success: false, error: 'Incorrect password for this clearing.' };
+    if (!password) {
+      return { success: false, error: 'Please enter your password.' };
     }
 
-    // Set session
-    this.setSession({
+    let accessToken: string | undefined;
+    let refreshToken: string | undefined;
+
+    if (cleanId.includes('@')) {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanId,
+        password,
+      });
+
+      if (error || !data.session) {
+        return {
+          success: false,
+          error: 'Invalid email or password. If you just registered, check whether email confirmation is required.',
+        };
+      }
+
+      accessToken = data.session.access_token;
+      refreshToken = data.session.refresh_token;
+    } else {
+      const { data, error } = await supabase.functions.invoke<{
+        session?: { access_token: string; refresh_token: string };
+        error?: string;
+      }>('username-lookup', {
+        body: { username: cleanId, password },
+      });
+
+      if (error || !data?.session) {
+        return {
+          success: false,
+          error: data?.error || 'Invalid username or password. Check that the login function has been deployed.',
+        };
+      }
+
+      accessToken = data.session.access_token;
+      refreshToken = data.session.refresh_token;
+    }
+
+    if (!accessToken || !refreshToken) {
+      return { success: false, error: 'The authentication session could not be established.' };
+    }
+
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+
+    if (sessionError || !sessionData.user) {
+      return {
+        success: false,
+        error: sessionError?.message || 'Could not establish your session.',
+      };
+    }
+
+    const account = await accountFromUser(sessionData.user);
+
+    cacheSession({
       account,
       activeProfile: null,
       isGuest: false,
     });
 
-    SanctuaryStorage.addLog('SIGNAL', 'SYSTEM', `Account entered the Grove: ${account.username}`);
+    SanctuaryStorage.addLog(
+      'SIGNAL',
+      'SYSTEM',
+      `Account entered the Grove: ${account.username}`,
+    );
+
     return { success: true, account };
   },
 
   getSession(): AuthSession {
     try {
-      const data = localStorage.getItem(CURRENT_SESSION_KEY);
-      if (!data) {
-        return { account: null, activeProfile: null, isGuest: true };
+      const raw = localStorage.getItem(CURRENT_SESSION_KEY);
+      if (!raw) return guestSession();
+
+      const session = JSON.parse(raw) as AuthSession;
+
+      // Discard obsolete fake accounts from the previous local-only system.
+      if (session.account && !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(session.account.id)) {
+        localStorage.removeItem(CURRENT_SESSION_KEY);
+        return guestSession();
       }
-      return JSON.parse(data);
+
+      return session;
     } catch {
-      return { account: null, activeProfile: null, isGuest: true };
+      return guestSession();
     }
   },
 
   setSession(session: AuthSession): void {
-    try {
-      localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(session));
-    } catch {
-      // safe fallback
-    }
+    cacheSession(session);
   },
 
   setActiveProfile(profile: UserProfile | null): void {
     const current = this.getSession();
-    this.setSession({
+
+    cacheSession({
       ...current,
       activeProfile: profile,
-      isGuest: profile ? false : current.isGuest,
+      isGuest: profile ? current.isGuest : current.isGuest,
     });
+
     if (profile) {
-      SanctuaryStorage.addLog('INFO', 'SYSTEM', `Viewing clearing activated: ${profile.name}`);
+      SanctuaryStorage.addLog(
+        'INFO',
+        'SYSTEM',
+        `Viewing clearing activated: ${profile.name}`,
+      );
     }
   },
 
   enterAsGuest(): void {
-    this.setSession({
+    cacheSession({
       account: null,
       activeProfile: {
         id: 'guest-profile',
@@ -154,118 +300,174 @@ export const AuthService = {
       },
       isGuest: true,
     });
+
     SanctuaryStorage.setGateUnlocked(true);
-    SanctuaryStorage.addLog('SIGNAL', 'SYSTEM', 'Sanctuary entered under Guest Traveler status');
+    SanctuaryStorage.addLog(
+      'SIGNAL',
+      'SYSTEM',
+      'Sanctuary entered under Guest Traveler status',
+    );
   },
 
   async updateAccount(
     accountId: string,
-    updates: { displayName?: string; email?: string }
+    updates: { displayName?: string; email?: string },
   ): Promise<{ success: boolean; error?: string; account?: UserAccount }> {
-    const accounts = this.getAccounts();
-    const idx = accounts.findIndex(a => a.id === accountId);
-    if (idx === -1) return { success: false, error: 'Account not found in sanctuary records.' };
+    const { data: authData, error: authError } = await supabase.auth.getUser();
 
-    const current = accounts[idx];
-    const newDisplayName = updates.displayName ? updates.displayName.trim() : current.displayName;
-    const newEmail = updates.email ? updates.email.trim().toLowerCase() : current.email;
-
-    if (!newDisplayName) return { success: false, error: 'Display name cannot be empty.' };
-    if (!newEmail || !newEmail.includes('@')) return { success: false, error: 'Please enter a valid email address.' };
-
-    // Check if new email is used by another account
-    if (newEmail !== current.email && accounts.some(a => a.id !== accountId && a.email.toLowerCase() === newEmail)) {
-      return { success: false, error: 'That email is already registered to another sanctuary account.' };
+    if (authError || !authData.user || authData.user.id !== accountId) {
+      return { success: false, error: 'Please sign in again before updating your account.' };
     }
 
-    const updatedAccount: UserAccount = {
-      ...current,
-      displayName: newDisplayName,
-      email: newEmail,
-    };
+    const current = await accountFromUser(authData.user);
+    const newDisplayName = updates.displayName?.trim() || current.displayName;
+    const newEmail = updates.email?.trim().toLowerCase() || current.email;
 
-    accounts[idx] = updatedAccount;
-    localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
+    if (!newDisplayName) {
+      return { success: false, error: 'Display name cannot be empty.' };
+    }
 
-    // Update active session if it matches
-    const session = this.getSession();
-    if (session.account?.id === accountId) {
-      this.setSession({
-        ...session,
-        account: updatedAccount,
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+      return { success: false, error: 'Please enter a valid email address.' };
+    }
+
+    const { error: metadataError } = await supabase.auth.updateUser({
+      data: { display_name: newDisplayName },
+    });
+
+    if (metadataError) {
+      return { success: false, error: metadataError.message };
+    }
+
+    const { error: profileError } = await supabase
+      .from('account_profiles')
+      .update({ display_name: newDisplayName })
+      .eq('id', accountId);
+
+    if (profileError) {
+      return { success: false, error: profileError.message };
+    }
+
+    if (newEmail !== current.email) {
+      const { error: emailError } = await supabase.auth.updateUser({
+        email: newEmail,
       });
+
+      if (emailError) {
+        return { success: false, error: emailError.message };
+      }
     }
 
-    SanctuaryStorage.addLog('INFO', 'SYSTEM', `Account details updated for: ${updatedAccount.username}`);
-    return { success: true, account: updatedAccount };
+    const refreshed = await supabase.auth.getUser();
+    const account = refreshed.data.user
+      ? await accountFromUser(refreshed.data.user)
+      : { ...current, displayName: newDisplayName };
+
+    cacheSession({
+      ...this.getSession(),
+      account,
+    });
+
+    SanctuaryStorage.addLog(
+      'INFO',
+      'SYSTEM',
+      `Account details updated for: ${account.username}`,
+    );
+
+    return {
+      success: true,
+      account,
+      ...(newEmail !== current.email
+        ? { error: 'Email change requested. Check your inbox to confirm it if email confirmation is enabled.' }
+        : {}),
+    };
   },
 
   async changePassword(
     accountId: string,
     currentPass: string,
-    newPass: string
+    newPass: string,
   ): Promise<{ success: boolean; error?: string }> {
-    if (!currentPass) return { success: false, error: 'Please enter your current password.' };
-    if (!newPass || newPass.length < 6) return { success: false, error: 'New password must be at least 6 characters.' };
-
-    const accounts = this.getAccounts();
-    const idx = accounts.findIndex(a => a.id === accountId);
-    if (idx === -1) return { success: false, error: 'Account not found.' };
-
-    const account = accounts[idx];
-    const currentHash = await hashPassword(currentPass);
-    const isMatch = account.passwordHash === currentHash || (account.username === 'keeper' && currentPass === 'admin123');
-
-    if (!isMatch) {
-      return { success: false, error: 'Current password does not match sanctuary records.' };
+    if (!currentPass) {
+      return { success: false, error: 'Please enter your current password.' };
     }
 
-    const newHash = await hashPassword(newPass);
-    accounts[idx] = {
-      ...account,
-      passwordHash: newHash,
-    };
-    localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
-    SanctuaryStorage.addLog('SIGNAL', 'SYSTEM', `Security credentials renewed for: ${account.username}`);
+    if (newPass.length < 6) {
+      return { success: false, error: 'New password must be at least 6 characters.' };
+    }
+
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !authData.user || authData.user.id !== accountId) {
+      return { success: false, error: 'Please sign in again before changing your password.' };
+    }
+
+    const email = authData.user.email;
+    if (!email) {
+      return { success: false, error: 'No email address is associated with this account.' };
+    }
+
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email,
+      password: currentPass,
+    });
+
+    if (verifyError) {
+      return { success: false, error: 'Your current password is incorrect.' };
+    }
+
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: newPass,
+    });
+
+    if (updateError) {
+      return { success: false, error: updateError.message };
+    }
+
+    SanctuaryStorage.addLog(
+      'SIGNAL',
+      'SYSTEM',
+      `Security credentials renewed for: ${authData.user.user_metadata?.username ?? email}`,
+    );
+
     return { success: true };
   },
 
   async deleteAccount(
-    accountId: string,
-    passwordConfirm: string
+    _accountId: string,
+    _passwordConfirm: string,
   ): Promise<{ success: boolean; error?: string }> {
-    const accounts = this.getAccounts();
-    const idx = accounts.findIndex(a => a.id === accountId);
-    if (idx === -1) return { success: false, error: 'Account record not found.' };
-
-    const account = accounts[idx];
-    const inputHash = await hashPassword(passwordConfirm);
-    const isMatch = account.passwordHash === inputHash || (account.username === 'keeper' && passwordConfirm === 'admin123');
-
-    if (!isMatch) {
-      return { success: false, error: 'Password confirmation incorrect. Cannot delete account.' };
-    }
-
-    // 1. Delete all profiles belonging to this account and clean up photos & vaults
-    try {
-      const { ProfileService } = await import('./profileService');
-      await ProfileService.deleteAccountProfiles(accountId);
-    } catch (err) {
-      console.warn('Profile deletion during account cleanup', err);
-    }
-
-    // 2. Remove account record
-    const updatedAccounts = accounts.filter(a => a.id !== accountId);
-    localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(updatedAccounts));
-
-    // 3. Clear session
-    this.logout();
-    SanctuaryStorage.addLog('ANOMALY', 'SYSTEM', `Account permanently unrooted and dissolved: ${account.username}`);
-    return { success: true };
+    // Auth users must be deleted through a protected server-side function.
+    return {
+      success: false,
+      error: 'Secure account deletion has not been configured yet. Your account has not been deleted.',
+    };
   },
 
   logout(): void {
-    localStorage.removeItem(CURRENT_SESSION_KEY);
-    SanctuaryStorage.addLog('INFO', 'SYSTEM', 'Sanctuary session sealed. Returned to the edge of the forest.');
-  }
+    cacheSession(guestSession());
+    void supabase.auth.signOut();
+    SanctuaryStorage.addLog(
+      'INFO',
+      'SYSTEM',
+      'Sanctuary session sealed. Returned to the edge of the forest.',
+    );
+  },
 };
+
+// Keep the cached UI session aligned with Supabase's persisted authentication.
+supabase.auth.onAuthStateChange((_event, session) => {
+  if (session?.user) {
+    setTimeout(() => {
+      void syncSignedInAccount(session.user.id);
+    }, 0);
+    return;
+  }
+
+  const current = AuthService.getSession();
+
+  // Supabase's initial empty session should not erase an intentional guest session.
+  if (!current.isGuest) {
+    cacheSession(guestSession());
+  }
+});

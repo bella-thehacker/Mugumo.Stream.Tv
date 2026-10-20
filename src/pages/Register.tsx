@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ForestEnvironment } from '../components/ForestEnvironment';
 import { AuthService } from '../services/authService';
-import { ProfileService } from '../services/profileService';
 import { soundscape } from '../services/soundscape';
 import { ArrowLeft, Eye, EyeOff, UserPlus, Sparkles, Check } from 'lucide-react';
 
@@ -17,10 +16,12 @@ export const Register: React.FC = () => {
   const [termsAccepted, setTermsAccepted] = useState(true);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    setSuccessMsg('');
 
     if (!displayName.trim()) {
       setErrorMsg('Please provide a display name for your sanctuary identity.');
@@ -59,12 +60,14 @@ export const Register: React.FC = () => {
         return;
       }
 
-      // Automatically create their primary clearing profile matching their display name
-      await ProfileService.createProfile(res.account.id, displayName, 'orchid');
-
       soundscape.playStaticBurst(300);
       setLoading(false);
-      // Direct user into Choose Your Clearing
+
+      if (res.needsEmailConfirmation) {
+        setSuccessMsg('Your account has been created. Check your email for a confirmation link before signing in.');
+        return;
+      }
+
       navigate('/choose-your-clearing');
     }, 450);
   };
@@ -222,6 +225,12 @@ export const Register: React.FC = () => {
           </div>
 
           {/* Error Message */}
+          {successMsg && (
+            <div role="status" className="p-3 rounded-lg bg-[#061D16] border border-[#A7F3D0]/50 text-xs font-mono text-[#A7F3D0]">
+              {successMsg}
+            </div>
+          )}
+
           {errorMsg && (
             <div className="p-3 rounded-lg bg-[#260C0A] border border-red-500/50 text-xs font-mono text-red-300">
               {errorMsg}
